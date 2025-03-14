@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Music Player</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: "Poppins", sans-serif;
+    }
+    
+    /* Background element */
+    #bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -2;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      opacity: 0.2;
+      transition: opacity 1s ease;
+    }
+    
+    /* Floating Music Player UI */
+    #player-container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 380px;
+      height: 100px;
+      background: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      color: white;
+      padding: 15px;
+      display: flex;
+      align-items: center;
+      box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Album artwork */
+    #thumbnail {
+      width: 70px;
+      height: 70px;
+      border-radius: 12px;
+      object-fit: cover;
+      margin-right: 15px;
+      transition: opacity 1s ease;
+    }
+    
+    /* Text info */
+    #text-info {
+      flex-grow: 1;
+    }
+    
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+    }
+    
+    p {
+      font-size: 14px;
+      opacity: 0.8;
+      text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+    }
+    
+    /* Hide YouTube player */
+    #player {
+      width: 1px;
+      height: 1px;
+      position: absolute;
+      left: -9999px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Background element -->
+  <div id="bg"></div>
+  
+  <!-- Music Player UI -->
+  <div id="player-container">
+    <img id="thumbnail" src="" alt="Thumbnail">
+    <div id="text-info">
+      <h3 id="track-title">Loading...</h3>
+      <p id="album-name">Fetching data...</p>
+    </div>
+  </div>
+  
+  <div id="player"></div>
+  
+  <script>
+    let PLAYLIST_ID = "YOUR-PLAYLIST-HERE";
+    const YOUTUBE_API_KEY = "YOUR-API-KEY-HERE";
+    
+    let player;
+    let playlistItems = [];
+    let currentIndex = 0;
+    
+    function onYouTubeIframeAPIReady() {
+      fetchPlaylistData();
+    }
+    
+    function fetchPlaylistData() {
+      const apiUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${PLAYLIST_ID}&maxResults=50&key=${YOUTUBE_API_KEY}`;
+      console.log("Fetching from:", apiUrl);
+      fetch(apiUrl)
+        .then(res => res.json())
+        .then(data => {
+          console.log("API Response:", data);
+          if(data.error) {
+            console.error("API Error:", data.error);
+            return;
+          }
+          // Map items with safe fallbacks for thumbnails
+          playlistItems = data.items.map(item => {
+            const snippet = item.snippet;
+            const thumbnails = snippet.thumbnails;
+            let thumbnailUrl = "";
+            if (thumbnails.high && thumbnails.high.url) {
+              thumbnailUrl = thumbnails.high.url;
+            } else if (thumbnails.medium && thumbnails.medium.url) {
+              thumbnailUrl = thumbnails.medium.url;
+            } else if (thumbnails.default && thumbnails.default.url) {
+              thumbnailUrl = thumbnails.default.url;
+            }
+            return {
+              title: snippet.title,
+              videoId: snippet.resourceId.videoId,
+              album: snippet.videoOwnerChannelTitle || snippet.channelTitle || "Unknown",
+              thumbnail: thumbnailUrl
+            };
+          });
+          if (playlistItems.length > 0) {
+            // If the player exists, load the new first video; otherwise, create the player.
+            if (player) {
+              player.loadVideoById(playlistItems[0].videoId);
+              player.setVolume(0);
+            } else {
+              createPlayer(playlistItems[0].videoId);
+            }
+            currentIndex = 0;
+            updateUI(0);
+          } else {
+            console.error("No items found. Ensure the playlist is public.");
+          }
+        })
+        .catch(err => console.error("Fetch Error:", err));
+    }
+    
+    function createPlayer(videoId) {
+      player = new YT.Player("player", {
+        height: "1",
+        width: "1",
+        videoId: videoId,
+        playerVars: { autoplay: 1, controls: 0 },
+        events: { "onStateChange": onPlayerStateChange }
+      });
+    }
+    
+    function onPlayerStateChange(event) {
+      if (event.data === YT.PlayerState.PLAYING) {
+        // If volume is 0, fade in audio.
+        if (player.getVolume() === 0) {
+          fadeInAudio();
+        }
+      } else if (event.data === YT.PlayerState.ENDED) {
+        currentIndex++;
+        if (currentIndex < playlistItems.length) {
+          player.loadVideoById(playlistItems[currentIndex].videoId);
+          player.setVolume(0);
+          updateUI(currentIndex);
+        }
+      }
+    }
+    
+    function updateUI(index) {
+      const track = playlistItems[index];
+      // Fade out visuals
+      const thumbEl = document.getElementById("thumbnail");
+      const bgEl = document.getElementById("bg");
+      thumbEl.style.opacity = 0;
+      bgEl.style.opacity = 0;
+      setTimeout(() => {
+        document.getElementById("track-title").textContent = track.title;
+        document.getElementById("album-name").textContent = track.album;
+        thumbEl.src = track.thumbnail;
+        bgEl.style.backgroundImage = `url(${track.thumbnail})`;
+        // Fade in visuals
+        thumbEl.style.opacity = 1;
+        bgEl.style.opacity = 0.8;
+      }, 500);
+    }
+    
+    function fadeInAudio(targetVolume = 100, duration = 2000) {
+      let currentVol = 0;
+      player.setVolume(currentVol);
+      const stepTime = 100; // in ms
+      const steps = duration / stepTime;
+      const step = targetVolume / steps;
+      const interval = setInterval(() => {
+        currentVol += step;
+        if (currentVol >= targetVolume) {
+          currentVol = targetVolume;
+          clearInterval(interval);
+        }
+        player.setVolume(currentVol);
+      }, stepTime);
+    }
+    
+    // Listen for "R" keypress to open a separate modal prompt for a new playlist ID
+    document.addEventListener("keydown", function(e) {
+      if (e.key.toLowerCase() === "r") {
+        openPlaylistPrompt();
+      }
+    });
+    
+    function openPlaylistPrompt() {
+      // Open a new window with minimal UI as a modal prompt
+      let promptWindow = window.open("", "PlaylistPrompt", "width=300,height=150,modal=yes,alwaysOnTop=yes");
+      promptWindow.document.write(`
+        <html>
+          <head>
+            <title>Enter Playlist ID</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 20px; background: #fff; }
+              input { width: 100%; padding: 8px; margin-bottom: 10px; }
+              button { padding: 8px 12px; }
+            </style>
+          </head>
+          <body>
+            <h3>Enter new Playlist ID:</h3>
+            <input id="playlistInput" type="text" placeholder="Playlist ID" autofocus />
+            <button id="submitBtn">Submit</button>
+            <script>
+              document.getElementById('submitBtn').addEventListener('click', function() {
+                var newPlaylist = document.getElementById('playlistInput').value;
+                window.opener.postMessage({ playlist: newPlaylist }, '*');
+                window.close();
+              });
+              document.getElementById('playlistInput').addEventListener('keydown', function(e) {
+                if(e.key === 'Enter') {
+                  var newPlaylist = document.getElementById('playlistInput').value;
+                  window.opener.postMessage({ playlist: newPlaylist }, '*');
+                  window.close();
+                }
+              });
+            <\/script>
+          </body>
+        </html>
+      `);
+    }
+    
+    // Listen for the message from the prompt window
+    window.addEventListener("message", function(event) {
+      if (event.data.playlist) {
+        PLAYLIST_ID = event.data.playlist;
+        currentIndex = 0;
+        fetchPlaylistData();
+      }
+    });
+    
+    // Load YouTube API script
+    let script = document.createElement("script");
+    script.src = "https://www.youtube.com/iframe_api";
+    document.body.appendChild(script);
+  </script>
+</body>
+</html>
