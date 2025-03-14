@@ -21,5 +21,5 @@ app.whenReady().then(() => {
     y: height - 120 - 10, 
   });
 
-  win.loadFile("templates/index.html"); 
+  win.loadFile("index.html"); 
 });
